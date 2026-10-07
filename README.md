@@ -133,10 +133,13 @@ crisp-dsh/
 cd obsidian-plugin
 node selfcheck.cjs               # 契约层：注册项 / 菜单 / 选中与文件投递 / 令牌不落盘
 node token-autodetect.test.cjs   # 令牌嗅探：取最新、降级不崩
-npm i jsdom && NODE_PATH=./node_modules \
-  node composer-focus.dom.cjs    # DOM 层：真实 DOM 上的输入框定位
-cd ../dsh-plugin && node test/selfcheck.mjs   # DSH 侧：四个工具 + 越界拒绝
+npm i jsdom
+NODE_PATH=./node_modules node composer-focus.dom.cjs   # 输入框定位
+NODE_PATH=./node_modules node rail-toggle.dom.cjs      # 左侧栏折叠
+cd ../dsh-plugin && node test/selfcheck.mjs            # DSH 侧：四个工具 + 越界拒绝
 ```
+
+**为什么脚本里一个类名都不写？** DSH 前端用 CSS Module 生成哈希类名（形如 `pI_x6G_*`），**每次构建都变**。侧栏折叠功能最初正是硬编码了三个这样的类名——它们在当前版本里已全部消失，按钮因此静默失效，且没人发现。现在两处 DOM 脚本都按**行为与几何**定位：输入框看「与发送按钮同属一个容器」，左栏看「贴左边缘、通高的最宽面板」。`rail-toggle.dom.cjs` 会用 1px 分隔条、矮页眉、全宽容器、内缩面板四种干扰来验证这一点。
 
 `composer-focus.dom.cjs` 会喂给脚本三种干扰场景——页面别处的搜索框、隐藏的输入框、被禁用的输入框——确认它选中「与发送按钮同属一个容器的编辑框」，而不是页面上第一个文本框。DSH 前端用的是 CSS Module 哈希类名，所以脚本按**行为**定位而非硬编码类名，版本升级不会失效。
 

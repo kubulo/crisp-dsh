@@ -184,40 +184,67 @@ class DshCripView extends ItemView {
     }
   }
 
-  toggleDshSidebar() {
+  /**
+   * Collapse or restore DSH's own left rail, so the conversation gets the width.
+   *
+   * The previous version styled three hard-coded `.pI_x6G_*` class names. Those
+   * hashes are generated per build and are **not present in the current DSH
+   * frontend**, so the button silently did nothing. This resolves the rail by
+   * geometry instead — a full-height panel flush against the left edge — and
+   * pins it with one toggled rule, so no class name is baked in.
+   * @returns the outcome, so the caller can report an unrecognised layout.
+   */
+  async toggleDshSidebar() {
     const webview = this.containerEl.querySelector('webview')
-    if (webview && typeof webview.executeJavaScript === 'function') {
-      webview.executeJavaScript(`(() => {
-        let style = document.getElementById('crip-rail-toggle-style');
-        if (!style) {
-          style = document.createElement('style');
-          style.id = 'crip-rail-toggle-style';
-          document.head.appendChild(style);
-        }
-        const isHidden = style.textContent.trim().length > 0;
-        if (isHidden) {
-          style.textContent = '';
-          return { state: 'shown' };
-        } else {
-          style.textContent = \`
-            .pI_x6G_sidebarCol {
-              display: none !important;
-            }
-            .pI_x6G_centerCol {
-              grid-column: 1 !important;
-              width: 100% !important;
-            }
-            .pI_x6G_handle {
-              display: none !important;
-            }
-            .pI_x6G_frame {
-              grid-template-columns: minmax(0px, 1fr) minmax(0px, 0px) !important;
-            }
-          \`;
-          return { state: 'hidden' };
-        }
-      })()`).catch(() => {})
+    if (!webview || typeof webview.executeJavaScript !== 'function') return
+    const result = await webview.executeJavaScript(this.railToggleScript()).catch(() => null)
+    if (result && result.state === 'unresolved') {
+      new Notice('Crisp DSH：没认出 DSH 的左侧栏，折叠未生效（前端可能改版了）')
     }
+    return result
+  }
+
+  /**
+   * The script that hides or restores DSH's left rail from inside the webview.
+   * @returns source for `executeJavaScript`.
+   */
+  railToggleScript() {
+    return `(() => {
+      const STYLE_ID = 'crip-rail-toggle-style';
+      const RAIL_ATTR = 'data-crip-rail-hidden';
+      let style = document.getElementById(STYLE_ID);
+      if (!style) {
+        style = document.createElement('style');
+        style.id = STYLE_ID;
+        document.head.appendChild(style);
+      }
+
+      // Already collapsed: drop our rule and the marker, restoring the rail.
+      if (style.textContent.trim().length > 0) {
+        style.textContent = '';
+        document.querySelectorAll('[' + RAIL_ATTR + ']').forEach((el) => el.removeAttribute(RAIL_ATTR));
+        return { state: 'shown' };
+      }
+
+      // The rail is a full-height panel flush against the viewport's left edge.
+      const viewportH = window.innerHeight;
+      const viewportW = window.innerWidth;
+      const candidates = [...document.querySelectorAll('div, aside, nav')].filter((el) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.width > viewportW * 0.45) return false;
+        if (rect.height < viewportH * 0.8) return false;
+        return rect.left <= 1;
+      });
+      if (candidates.length === 0) return { state: 'unresolved', reason: 'no-left-rail' };
+
+      // Widest wins: the rail and its labels, not a stray 1px divider.
+      const rail = candidates.sort(
+        (a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width,
+      )[0];
+      rail.setAttribute(RAIL_ATTR, 'true');
+      style.textContent = '[' + RAIL_ATTR + '="true"] { display: none !important; }';
+      return { state: 'hidden', width: Math.round(rail.getBoundingClientRect().width) };
+    })()`
   }
 
   /**
