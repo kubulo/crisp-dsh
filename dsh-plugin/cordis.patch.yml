@@ -1,0 +1,9 @@
+# dsh-crip bundle patch: insert this plugin's row into the profile roster.
+#
+# Install:
+#   dsh plugin --profile web add -w file:$HOME/.dsh/plugins/dsh-crip
+- insert:
+    - id: crip
+      name: 'dsh-crip'
+      config:
+        vault: '/path/to/your/obsidian-vault'

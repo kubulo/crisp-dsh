@@ -1,0 +1,9 @@
+{
+  "id": "dsh-crip",
+  "name": "Crisp DSH",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "在 Obsidian 侧栏内运行本地 DeepSeek Harness（DSH），并把当前笔记交给它。配合 dsh-crip 插件使用。",
+  "author": "kubulo",
+  "isDesktopOnly": true
+}

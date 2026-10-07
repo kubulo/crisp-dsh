@@ -1,0 +1,124 @@
+.dsh-crip-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.dsh-crip-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex: 0 0 auto;
+}
+
+.dsh-crip-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.dsh-crip-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dsh-crip-badge-container {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* 椭圆形弧线胶囊 */
+.dsh-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: var(--font-ui-smaller);
+  font-family: var(--font-monospace);
+  line-height: 1.2;
+  user-select: none;
+  transition: all 0.25s ease;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+/* 大圆点 */
+.dsh-dot-big {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* 端口号 */
+.dsh-port-text {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* 小圆点分割符 */
+.dsh-dot-small {
+  color: var(--text-muted);
+  font-weight: bold;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* 状态文字 */
+.dsh-status-text {
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+
+/* 就绪状态 (绿色系，自适应明暗模式) */
+.dsh-status-pill.is-online {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+}
+.dsh-status-pill.is-online .dsh-dot-big {
+  background-color: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+.dsh-status-pill.is-online .dsh-status-text {
+  color: #16a34a;
+}
+.theme-dark .dsh-status-pill.is-online .dsh-status-text {
+  color: #4ade80;
+}
+
+/* 离线状态 (灰红色系) */
+.dsh-status-pill.is-offline {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.06);
+}
+.dsh-status-pill.is-offline .dsh-dot-big {
+  background-color: #ef4444;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+.dsh-status-pill.is-offline .dsh-status-text {
+  color: #dc2626;
+}
+.theme-dark .dsh-status-pill.is-offline .dsh-status-text {
+  color: #f87171;
+}
+
+.dsh-crip-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--background-primary);
+}

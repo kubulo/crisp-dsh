@@ -1,0 +1,33 @@
+{
+  "name": "dsh-crip",
+  "version": "0.1.0",
+  "description": "Crip — Obsidian vault tools for DeepSeek Harness (dsh): list, read, search and write vault notes.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "obsidian",
+    "vault"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  }
+}
