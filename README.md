@@ -105,6 +105,21 @@ crisp-dsh/
 
 ---
 
+---
+
+## 💬 技术支持与交流 (Support & Contact)
+
+如果在安装、配置或使用过程中遇到任何疑问或需要协助，欢迎添加作者微信咨询：
+
+- **微信号**：`kubulo`
+- **微信二维码**：
+
+<p align="left">
+  <img src="assets/wechat-qrcode.png" alt="WeChat QR Code" width="220" />
+</p>
+
+---
+
 ## 📄 License
 
 [MIT License](LICENSE) © 2026 kubulo
