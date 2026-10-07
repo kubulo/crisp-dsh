@@ -4,6 +4,14 @@
 
 ---
 
+## 📸 界面效果示意 (Preview)
+
+![Crisp DSH 界面预览](assets/crisp-dsh-preview.png)
+
+*图：在 Obsidian 右侧栏运行的 Crisp DSH 智灵体工作台，顶部配备「3080 · 就绪」图形化状态胶囊与一键折叠按钮。*
+
+---
+
 ## 🌟 核心特性
 
 - 🛠 **双端打通**：
