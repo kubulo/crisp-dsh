@@ -14,7 +14,7 @@ const fs = require('node:fs')
 const Module = require('node:module')
 const path = require('node:path')
 
-const calls = { views: [], commands: [], ribbons: [], tabs: [] }
+const calls = { views: [], commands: [], ribbons: [], tabs: [], events: [] }
 
 /** Minimal DOM-ish node: enough for the view's header row. */
 function fakeEl() {
@@ -49,6 +49,28 @@ class Plugin {
   addCommand(command) { calls.commands.push(command) }
   addRibbonIcon(icon, title, callback) { calls.ribbons.push({ icon, title, callback }) }
   addSettingTab(tab) { calls.tabs.push(tab) }
+  registerEvent(ref) { calls.events.push(ref) }
+}
+
+/** Stand-in for Obsidian's Menu, recording the items added to it. */
+function fakeMenu() {
+  const items = []
+  return {
+    items,
+    addItem(build) {
+      const item = {
+        title: undefined,
+        icon: undefined,
+        click: undefined,
+        setTitle(value) { this.title = value; return this },
+        setIcon(value) { this.icon = value; return this },
+        onClick(handler) { this.click = handler; return this },
+      }
+      build(item)
+      items.push(item)
+      return this
+    },
+  }
 }
 class PluginSettingTab {
   constructor(app, plugin) {
@@ -131,6 +153,8 @@ const fakeApp = {
     getRightLeaf: () => null,
     revealLeaf: async () => {},
     detachLeavesOfType: () => {},
+    // Record the handler under its event name so tests can fire each menu.
+    on: (name, handler) => ({ name, handler }),
   },
 }
 
@@ -142,7 +166,7 @@ const fakeApp = {
   assert.deepEqual(calls.views.map((v) => v.type), ['dsh-crip-chat'])
   assert.deepEqual(
     calls.commands.map((c) => c.id).sort(),
-    ['copy-active-note-link', 'open-dsh-sidebar', 'send-active-note-to-dsh'],
+    ['copy-active-note-link', 'open-dsh-sidebar', 'send-active-note-to-dsh', 'send-selection-to-dsh'],
   )
   assert.equal(calls.ribbons.length, 1)
   assert.equal(calls.tabs.length, 1)
@@ -204,7 +228,7 @@ const fakeApp = {
   await sendCommand.callback()
   // The composer focus runs on its own promise chain, behind the frame wait.
   await new Promise((resolve) => setTimeout(resolve, 30))
-  assert.equal(copied, '[[300_工坊/笔记]]', 'the note link reaches the clipboard before anything else')
+  assert.match(copied, /^\[\[300_工坊\/笔记\]\]（300_工坊\/笔记\.md）/, 'the reference carries both the wikilink and the plain path')
 
   // The focus script is addressed to the webview, and resolves by behavior.
   assert.equal(webview.executed.length, 1, 'exactly one focus script is injected')
@@ -236,7 +260,82 @@ const fakeApp = {
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.match(calls.lastNotice, /侧栏还没加载完/)
 
-  console.log('crip obsidian self-check: OK (1 view, 3 commands, send-to-DSH wired, token never persisted)')
+  // --- selection and file menus ---------------------------------------------
+
+  sidebarView.waitForFrame = () => Promise.resolve(true)
+  sidebarView.containerEl.querySelector = (selector) => (selector === 'webview' ? webview : null)
+
+  // A selection arrives quoted, with its line range, so the model can point back.
+  const editor = {
+    getSelection: () => '第一行\n第二行',
+    getCursor: (which) => (which === 'from' ? { line: 9 } : { line: 10 }),
+  }
+  fakeApp.workspace.getActiveViewOfType = () => ({ file: { path: '300_工坊/笔记.md' }, editor })
+  copied = ''
+  await sidebarView.sendSelectionToDsh()
+  assert.match(copied, /第 10-11 行/, 'the line range is one-based, not zero-based')
+  assert.match(copied, /^> 第一行\n> 第二行\n$/m, 'each selected line is quoted')
+
+  // An empty selection is refused rather than sending a blank reference.
+  const beforeEmpty = copied
+  editor.getSelection = () => '   '
+  await sidebarView.sendSelectionToDsh()
+  assert.equal(copied, beforeEmpty, 'no clipboard write for an empty selection')
+  assert.match(calls.lastNotice, /没有选中任何文字/)
+
+  // An overlong selection is clamped, and the notice admits it.
+  editor.getSelection = () => 'x'.repeat(5000)
+  await sidebarView.sendSelectionToDsh()
+  assert.ok(copied.length < 5000, `selection should be clamped, got ${copied.length} chars`)
+  assert.match(copied, /已截断/)
+  assert.match(calls.lastNotice, /内容已截断/)
+
+  // The file explorer's entry sends the clicked file, not the focused one.
+  const fileMenu = calls.events.find((e) => e && e.name === 'file-menu')
+  assert.ok(fileMenu, 'a file-menu handler is registered')
+  const nf = fakeMenu()
+  fileMenu.handler(nf, { path: '100_收录/另一篇.md', basename: '另一篇', extension: 'md' })
+  assert.equal(nf.items.length, 1)
+  assert.equal(nf.items[0].icon, 'message-square-plus')
+  copied = ''
+  await nf.items[0].click()
+  assert.match(copied, /100_收录\/另一篇/, 'the clicked file is the one sent')
+  assert.match(calls.lastNotice, /另一篇/)
+
+  // Queued items honour the sidebar guard instead of silently doing nothing.
+  plugin.getSidebarView = () => null
+  const orphanMenu = fakeMenu()
+  fileMenu.handler(orphanMenu, { path: 'a.md', basename: 'a', extension: 'md' })
+  const beforeOrphan = copied
+  await orphanMenu.items[0].click()
+  assert.equal(copied, beforeOrphan, 'nothing is copied when the sidebar is closed')
+  assert.match(calls.lastNotice, /侧栏没打开/)
+  plugin.getSidebarView = () => sidebarView
+
+  // The editor menu offers the selection only when there is one, always the note.
+  const editorMenu = calls.events.find((e) => e && e.name === 'editor-menu')
+  assert.ok(editorMenu, 'an editor-menu handler is registered')
+  const withSelection = fakeMenu()
+  editorMenu.handler(withSelection, { getSelection: () => '有选中' }, { file: { path: 'b.md' } })
+  assert.deepEqual(
+    withSelection.items.map((i) => i.title),
+    ['添加选中文字到 DSH 对话', '添加整篇笔记到 DSH 对话'],
+  )
+  const withoutSelection = fakeMenu()
+  editorMenu.handler(withoutSelection, { getSelection: () => '' }, { file: { path: 'b.md' } })
+  assert.deepEqual(
+    withoutSelection.items.map((i) => i.title),
+    ['添加整篇笔记到 DSH 对话'],
+    'with no selection, only the whole-note item is offered',
+  )
+
+  // Non-Markdown files are refused with a reason, not sent and silently ignored.
+  copied = ''
+  await sidebarView.sendFileToDsh({ path: 'assets/图.png', basename: '图', extension: 'png' })
+  assert.equal(copied, '', 'a non-Markdown file is never sent')
+  assert.match(calls.lastNotice, /不是 Markdown 笔记/)
+
+  console.log('crip obsidian self-check: OK (1 view, 4 commands, 2 menus, selection + file + note hand-off, token never persisted)')
 })().catch((error) => {
   console.error('FAIL:', error.message)
   process.exit(1)
