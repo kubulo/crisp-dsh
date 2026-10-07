@@ -171,6 +171,149 @@ class DshCripView extends ItemView {
     }
   }
 
+  /**
+   * Await the sidebar webview's first paint, so the composer exists by the time
+   * we poke at it.
+   *
+   * `<webview>` needs a tick of DOM time before it answers `executeJavaScript`;
+   * `dom-ready` is the reliable edge. The timeout bounds the wait — a missing
+   * frame resolves too, and the caller reports that as "frame not ready" rather
+   * than hanging.
+   * @param webview - the sidebar's webview element.
+   * @param timeoutMs - how long to wait for `dom-ready` before giving up.
+   * @returns whether the frame finished loading.
+   */
+  waitForFrame(webview, timeoutMs = 4000) {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (ok) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        webview.removeEventListener('dom-ready', onReady)
+        resolve(ok)
+      }
+      const onReady = () => finish(true)
+      const timer = window.setTimeout(() => finish(false), timeoutMs)
+      webview.addEventListener('dom-ready', onReady)
+    })
+  }
+
+  /**
+   * Hand the active note to DSH: copy its wikilink, bring the sidebar forward,
+   * and put the caret in the composer so a single paste finishes the job.
+   * @returns the delivery result, for the caller's notice text.
+   */
+  async sendActiveNoteToDsh() {
+    const file = this.app.workspace.getActiveFile()
+      ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.file
+    if (!file) {
+      new Notice('Crisp DSH：当前没有打开的笔记')
+      return { ok: false, reason: 'no-file' }
+    }
+
+    const link = `[[${file.path.replace(/\.md$/i, '')}]]`
+    try {
+      await navigator.clipboard.writeText(link)
+    } catch {
+      new Notice('Crisp DSH：剪贴板被占用，双链没复制成功，请重试')
+      return { ok: false, reason: 'clipboard' }
+    }
+
+    // Focus the sidebar first so the paste and the caret land in the same place.
+    await this.plugin.activateView()
+    this.focusComposer()
+    return { ok: true, link }
+  }
+
+  /** Best-effort focus of the composer; the note is on the clipboard either way. */
+  focusComposer() {
+    const webview = this.containerEl.querySelector('webview')
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      new Notice('Crisp DSH：双链已复制。侧栏未就绪，请点一下输入框再粘贴')
+      return
+    }
+
+    this.waitForFrame(webview).then((ready) => {
+      if (!ready) {
+        new Notice('Crisp DSH：双链已复制。侧栏还没加载完，请点一下输入框再粘贴')
+        return
+      }
+      webview.executeJavaScript(this.composerFocusScript()).then((result) => {
+        if (result && result.focused) {
+          new Notice('Crisp DSH：双链已复制，输入框已聚焦 — 按 ⌘V 粘贴后回车')
+        } else {
+          new Notice('Crisp DSH：双链已复制。请点一下 DSH 输入框再粘贴')
+        }
+      }).catch(() => {
+        new Notice('Crisp DSH：双链已复制。请点一下 DSH 输入框再粘贴')
+      })
+    })
+  }
+
+  /**
+   * The script that runs inside the webview to focus the composer.
+   *
+   * DSH's frontend is built CSS-module classes whose hashes change between
+   * builds, so a hard-coded selector would rot on the next upgrade. This resolves
+   * the composer by behavior instead: the editable field that shares an ancestor
+   * with a send button is the composer, whatever the class is called.
+   * @returns source for `executeJavaScript`.
+   */
+  composerFocusScript() {
+    return `(() => {
+      const isVisible = (el) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+      };
+
+      const isSendControl = (el) => {
+        const tokens = (el.tagName + ' ' + (el.className || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
+        return /button|btn/.test(tokens) && /send|submit|发送/.test(tokens);
+      };
+      const sendButton = [...document.querySelectorAll('button, [role="button"], [aria-label]')]
+        .find((el) => isSendControl(el) && isVisible(el));
+      if (!sendButton) return { focused: false, reason: 'no-send-button' };
+
+      // A DSH message composer is a rich text editor, never a plain <input>:
+      // accepting inputs would let a search box or single-line prompt steal the
+      // caret. Restricting the selector also keeps the climb below meaningful.
+      const editableSelector = 'textarea, [contenteditable="true"], [role="textbox"]';
+      const isEditable = (el) => el.tagName !== 'INPUT' && isVisible(el) && !el.disabled && !el.readOnly;
+
+      // Walk up from the send button and stop at the nearest ancestor holding
+      // exactly one editable field. A fixed number of parent hops overshoots to
+      // <html>, where an unrelated search box would win the [0] slot.
+      let scope = sendButton.parentElement;
+      let field = null;
+      for (let depth = 0; depth < 6 && scope; depth += 1) {
+        const candidates = [...scope.querySelectorAll(editableSelector)].filter(isEditable);
+        if (candidates.length === 1) { field = candidates[0]; break; }
+        if (candidates.length === 0 && scope.tagName === 'FORM') break;
+        scope = scope.parentElement;
+      }
+      if (!field) return { focused: false, reason: 'no-field' };
+
+      field.focus();
+      // contenteditable needs an explicit caret; React-wrapped textareas ignore selection.
+      if (field.isContentEditable) {
+        const range = document.createRange();
+        range.selectNodeContents(field);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else if (field.setSelectionRange) {
+        field.setSelectionRange(field.value.length, field.value.length);
+      }
+
+      const label = (field.getAttribute('aria-label') || field.getAttribute('placeholder') || '').trim();
+      return { focused: document.activeElement === field, reason: 'ok', label };
+    })()`
+  }
+
   render() {
     const root = this.containerEl.children[1]
     root.empty()
@@ -262,7 +405,7 @@ class DshCripSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('把当前笔记交给 DSH')
-      .setDesc('复制当前笔记的双链到剪贴板，粘贴进 DSH 对话框即可，模型会用 vault_read 读它。')
+      .setDesc('命令面板运行「把当前笔记交给 DSH」：复制双链、唤起侧栏、聚焦输入框，按 ⌘V 后回车即发送。')
       .addButton((button) =>
         button.setButtonText('复制双链').onClick(() => this.plugin.copyActiveNoteLink()),
       )
@@ -279,14 +422,29 @@ module.exports = class DshCripPlugin extends Plugin {
     this.addRibbonIcon('sparkles', '打开 DSH 智灵体', () => this.activateView())
     this.addSettingTab(new DshCripSettingTab(this.app, this))
 
+    /** The sidebar leaf, when one is open — the send-to-DSH path needs it. */
+    this.getSidebarView = () => this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view ?? null
+
     this.addCommand({
       id: 'open-dsh-sidebar',
       name: '打开 DSH 侧栏',
       callback: () => this.activateView(),
     })
     this.addCommand({
+      id: 'send-active-note-to-dsh',
+      name: '把当前笔记交给 DSH（复制双链 + 聚焦输入框）',
+      callback: () => {
+        const view = this.getSidebarView()
+        if (!view || typeof view.sendActiveNoteToDsh !== 'function') {
+          new Notice('Crisp DSH：侧栏没打开，先用 ✨ 图标唤出侧栏')
+          return
+        }
+        return view.sendActiveNoteToDsh()
+      },
+    })
+    this.addCommand({
       id: 'copy-active-note-link',
-      name: '把当前笔记双链复制给 DSH',
+      name: '只复制当前笔记双链',
       callback: () => this.copyActiveNoteLink(),
     })
   }
